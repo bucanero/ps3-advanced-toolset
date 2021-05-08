@@ -20,10 +20,13 @@
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <mikmod.h>
+#include <soundlib/gcmodplay.h>
+#include <soundlib/spu_soundlib.h>
 
 #include "gfx.h"
 #include "pad.h"
+#include "spu_soundmodule_bin.h"
+#include "space_debris_mod_bin.h"
 
 int v_release = 0;
 
@@ -40,7 +43,6 @@ void release_all();
 #define DT_DIR 1
 
 #define VERSION "v1.0.0"
-#define PORT 4299
 #define MAX_ARG_COUNT 0x100
 
 #define ERROR(a, msg) { \
@@ -59,13 +61,71 @@ void release_all();
 	} \
 }
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define ZIP_PATH "/dev_hdd0/tmp/ps3load"
-#define SELF_PATH ZIP_PATH ".self"
 
 char ps3load_path[MAXPATHLEN]= "/dev_hdd0/game/PS3T000LZ/TOOLS";
 char install_folder[MAXPATHLEN];
 
+MODPlay mod_track;   // struct for the MOD Player
 
+// SPU
+u32 inited;
+u32 spu = 0;
+sysSpuImage spu_image;
+
+#define INITED_CALLBACK     1
+#define INITED_SPU          2
+#define INITED_SOUNDLIB     4
+#define INITED_MODPLAYER    8
+
+#define SPU_SIZE(x) (((x)+127) & ~127)
+
+
+void InitSoundlib()
+{
+	//Initialize SPU
+	u32 entry = 0;
+	u32 segmentcount = 0;
+	sysSpuSegment* segments;
+	
+	sysSpuInitialize(6, 5);
+	sysSpuRawCreate(&spu, NULL);
+	sysSpuElfGetInformation(spu_soundmodule_bin, &entry, &segmentcount);
+	
+	size_t segmentsize = sizeof(sysSpuSegment) * segmentcount;
+	segments = (sysSpuSegment*)memalign(128, SPU_SIZE(segmentsize)); // must be aligned to 128 or it break malloc() allocations
+	memset(segments, 0, segmentsize);
+
+	sysSpuElfGetSegments(spu_soundmodule_bin, segments, segmentcount);
+	sysSpuImageImport(&spu_image, spu_soundmodule_bin, 0);
+	sysSpuRawImageLoad(spu, &spu_image);
+	
+	inited |= INITED_SPU;
+	if(SND_Init(spu)==0)
+		inited |= INITED_SOUNDLIB;
+}
+
+void PlayModTrack()
+{
+	InitSoundlib(); // Initialize the Sound Lib
+	
+	if (!(inited & INITED_SOUNDLIB))
+		return;
+
+	MODPlay_Init(&mod_track);  // Initialize the MOD Library
+
+	if (MODPlay_SetMOD (&mod_track, space_debris_mod_bin ) < 0) // set the MOD song
+    {
+        MODPlay_Unload (&mod_track);
+        return;
+    }
+
+    SND_Pause(0); // the sound loop is running now
+
+    MODPlay_SetVolume( &mod_track, 64,64); // fix the volume to 64 (max 64)
+    MODPlay_Start (&mod_track); // Play the MOD
+
+	inited |= INITED_MODPLAYER;
+}
 
 
 // thread
@@ -110,7 +170,7 @@ static void control_thread(void* arg)
        
         ps3pad_read();
 
-        if((new_pad & BUTTON_TRIANGLE) && !menu_level){
+        if((new_pad & BUTTON_CIRCLE) && !menu_level){
 			
             menu_level = 2; yesno = 0;
 		}
@@ -118,11 +178,6 @@ static void control_thread(void* arg)
         if((new_pad & BUTTON_SQUARE) && !menu_level  && ndirectories>0){
 			
             menu_level = 3; yesno = 0;	
-		}
-
-        if((new_pad & BUTTON_CIRCLE) && !menu_level && ndirectories>0 && device_mode){
-			
-            menu_level = 4; yesno = 0;	
 		}
 
         if(ndirectories <= 0 && (menu_level==1)) menu_level = 0;
@@ -165,31 +220,16 @@ static void control_thread(void* arg)
 
                 break;
 
-
-
-                // HDD install 
-                case 5:
+                // Disable music
+                case 3:
 
                     if(yesno) {
                        
                        yesno =0;
-                       hdd_install = 1;
+                       SND_Pause(1);
                        menu_level  = 0;
 
-                    } else {menu_level = 0; hdd_install = 0;}
-
-                break;
-
-                // USB install 
-                case 6:
-
-                    if(yesno) {
-                       
-                       yesno =0;
-                       hdd_install = 2;
-                       menu_level  = 0;
-
-                    } else {menu_level = 0; hdd_install = 0;}
+                    } else {menu_level = 0; SND_Pause(0);}
 
                 break;
 
@@ -469,17 +509,8 @@ static void control_thread(void* arg)
             break;
 
             case 3:
-                DrawString(0, y, "Delete Application?");
+                DrawString(0, y, "Disable Music?");
             break;
-
-            case 4:
-                if(device_mode)
-                    DrawString(0, y, "Copy from USB to HDD?");
-                else
-                    DrawString(0, y, "Copy from HDD to USB?");
-            break;
-
-            
 
             }
 
@@ -659,6 +690,12 @@ void release_all() {
 
 	u64 retval;
 
+	if (inited & INITED_MODPLAYER)
+	{
+		MODPlay_Unload (&mod_track);
+		SND_End();
+	}
+
 	sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
 	running= 0;
 	sysThreadJoin(thread1_id, &retval);
@@ -714,8 +751,7 @@ int main(int argc, const char* argv[], const char* envp[])
 	// register exit callback
 	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sys_callback, NULL);
 
-    
-
+    PlayModTrack();
 
 #define continueloop() { goto reloop; }
 
