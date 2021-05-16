@@ -28,10 +28,7 @@
 #include "spu_soundmodule_bin.h"
 #include "space_debris_mod_bin.h"
 
-int v_release = 0;
-
 char msg_error[128];
-//char msg_one  [128];
 char msg_two  [128];
 
 char bootpath[MAXPATHLEN];
@@ -40,39 +37,22 @@ char bootpath[MAXPATHLEN];
 
 void release_all();
 
-#define DT_DIR 1
+#define VERSION         "v1.0.0"
+#define MSG_USAGE       "< > Browse (x) Select (o) Exit"
+#define MSG_CREDITS     "Credits: Berion, Bucanero, Hermes, sguerrini, zecoxao"
+#define PS3TOOLS_PATH   "/dev_hdd0/game/PS3T000LZ"
 
-#define VERSION "v1.0.0"
-#define MAX_ARG_COUNT 0x100
-
-#define ERROR(a, msg) { \
-	if (a < 0) { \
-		snprintf(msg_error, sizeof(msg_error), "PS3LoadX: " msg ); \
-        usleep(250); \
-	} \
-}
-#define ERROR2(a, msg) { \
-	if (a < 0) { \
-		snprintf(msg_error, sizeof(msg_error), "PS3LoadX: %s", msg ); \
-        sleep(2); \
-        msg_error[0] = 0; \
-		usleep(60); \
-		goto reloop; \
-	} \
-}
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
-char ps3load_path[MAXPATHLEN]= "/dev_hdd0/game/PS3T000LZ/TOOLS";
-char install_folder[MAXPATHLEN];
 
 MODPlay mod_track;   // struct for the MOD Player
 
 // SPU
-u32 inited;
+u32 inited = 0;
 u32 spu = 0;
 sysSpuImage spu_image;
 
-#define INITED_CALLBACK     1
+#define INITED_SNDPAUSED    1
 #define INITED_SPU          2
 #define INITED_SOUNDLIB     4
 #define INITED_MODPLAYER    8
@@ -119,12 +99,41 @@ void PlayModTrack()
         return;
     }
 
-    SND_Pause(0); // the sound loop is running now
-
     MODPlay_SetVolume( &mod_track, 64,64); // fix the volume to 64 (max 64)
     MODPlay_Start (&mod_track); // Play the MOD
 
+    SND_Pause(inited & INITED_SNDPAUSED); // the sound loop is running now
+
 	inited |= INITED_MODPLAYER;
+}
+
+int read_config(const char *file_path) {
+        FILE *fp;
+        u8 file_buf[1] = {0};
+        size_t file_size;
+
+        if ((fp = fopen(file_path, "rb")) == NULL)
+                return -1;
+        fseek(fp, 0, SEEK_END);
+        file_size = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        if (file_size > 0)
+            fread(file_buf, 1, 1, fp);
+        fclose(fp);
+
+        return file_buf[0];
+}
+
+int write_config(const char *file_path, u8 value) {
+        FILE *fp;
+        u8 buf[1] = { value };
+
+        if ((fp = fopen(file_path, "wb")) == NULL)
+                return -1;
+        fwrite(buf, 1, 1, fp);
+        fclose(fp);
+
+        return 0;
 }
 
 
@@ -150,10 +159,7 @@ int device_mode   = 0;
 int ndirectories  = 0;
 int curdir = 0;
 
-volatile int hdd_install = 0;
-
 char filename [1024];
-char filename2[1024];
 
 u32 color_two = 0xffffffff;
 
@@ -173,6 +179,11 @@ static void control_thread(void* arg)
         if((new_pad & BUTTON_CIRCLE) && !menu_level){
 			
             menu_level = 2; yesno = 0;
+		}
+
+        if((new_pad & BUTTON_SELECT) && !menu_level){
+			
+            snprintf(msg_two, sizeof(msg_two), (msg_two[0] == 0x43) ? MSG_USAGE : MSG_CREDITS);
 		}
 
         if((new_pad & BUTTON_SQUARE) && !menu_level  && ndirectories>0){
@@ -202,7 +213,7 @@ static void control_thread(void* arg)
                         if(directories[curdir].device)
                             sprintf(bootpath, "/dev_usb000/PS3T000LZ/%s/tool.self", &directories[curdir].name[0]);
                         else
-                            sprintf(bootpath, "%s/%s/tool.self", ps3load_path, &directories[curdir].name[0]);
+                            sprintf(bootpath, "%s/TOOLS/%s/tool.self", PS3TOOLS_PATH, &directories[curdir].name[0]);
                     
 
                     } else menu_level = 0;
@@ -215,7 +226,6 @@ static void control_thread(void* arg)
                     if(yesno) {
                         flag_exit = 1;
                         
-
                     } else menu_level = 0;
 
                 break;
@@ -226,10 +236,12 @@ static void control_thread(void* arg)
                     if(yesno) {
                        
                        yesno =0;
-                       SND_Pause(1);
+                       inited ^= INITED_SNDPAUSED;
+                       write_config(PS3TOOLS_PATH "/USRDIR/config.bin", inited & INITED_SNDPAUSED);
+                       SND_Pause(inited & INITED_SNDPAUSED);
                        menu_level  = 0;
 
-                    } else {menu_level = 0; SND_Pause(0);}
+                    } else menu_level = 0;
 
                 break;
 
@@ -434,8 +446,7 @@ static void control_thread(void* arg)
         SetFontColor(0xFFFF00FF, 0x00000000);
         SetFontAutoCenter(1);
         
-        if(!v_release) DrawString(x, y, "PS3 Advanced Toolset " VERSION " - PSL1GHT TEST"); 
-        else DrawString(x, y, "PS3 Advanced Toolset " VERSION " - PSL1GHT");
+        DrawString(x, y, "PS3 Advanced Toolset " VERSION);
         
         SetFontAutoCenter(0);
 
@@ -505,11 +516,11 @@ static void control_thread(void* arg)
             break;
             
             case 2:
-                DrawString(0, y, "Exit to PS3 Menu?");
+                DrawString(0, y, "Exit to XMB?");
             break;
 
             case 3:
-                DrawString(0, y, "Disable Music?");
+                DrawString(0, y, (inited & INITED_SNDPAUSED) ? "Enable Music?" : "Disable Music?");
             break;
 
             }
@@ -564,7 +575,7 @@ static void file_thread(void* arg)
             if(sysLv2FsOpenDir("/dev_usb000/PS3T000LZ/", &dir) == 0) {
                 if(!pendrive_test) {hdd_test = 0; device_mode = 1; refresh = 1;} else sysLv2FsCloseDir(dir);
             } else {
-
+/*
                 if(device_mode == 0 && sysLv2FsOpenDir("/dev_usb000/", &dir) == 0) {
                     mkdir("/dev_usb000/PS3T000LZ", 0777);
                    sysLv2FsCloseDir(dir);
@@ -574,10 +585,10 @@ static void file_thread(void* arg)
                    device_mode = 1;
                    continue;
                 }
-
+*/
                 device_mode = 0;
                 pendrive_test = 0;
-                if(sysLv2FsOpenDir(ps3load_path, &dir) == 0) {
+                if(sysLv2FsOpenDir(PS3TOOLS_PATH "/TOOLS", &dir) == 0) {
                     if(!hdd_test) {device_mode = 0; refresh = 1;} else sysLv2FsCloseDir(dir);
                 } else {
                     ndirectories = 0;
@@ -604,7 +615,7 @@ static void file_thread(void* arg)
                         if(device_mode)
                             sprintf(filename, "/dev_usb000/PS3T000LZ/%s/title.txt", &directories[n].name[0]);
                         else
-                            sprintf(filename, "%s/%s/title.txt", ps3load_path, &directories[n].name[0]);
+                            sprintf(filename, "%s/TOOLS/%s/title.txt", PS3TOOLS_PATH, &directories[n].name[0]);
                        
 
                         fp =fopen(filename, "r");
@@ -623,8 +634,6 @@ static void file_thread(void* arg)
                     }
                     
                 }
-                
-                
 
                 ndirectories = n;
             }
@@ -645,7 +654,7 @@ static void file_thread(void* arg)
                     if(directories[index].device)
                         sprintf(filename, "/dev_usb000/PS3T000LZ/%s/ICON0.PNG", &directories[index].name[0]);
                     else
-                        sprintf(filename, "%s/%s/ICON0.PNG", ps3load_path, &directories[index].name[0]);
+                        sprintf(filename, "%s/TOOLS/%s/ICON0.PNG", PS3TOOLS_PATH, &directories[index].name[0]);
 
                     if(LoadTexturePNG(filename, i) == 0) directories[index].text = i;
                     else {
@@ -656,7 +665,6 @@ static void file_thread(void* arg)
                 }
             }
         }
-
 
         counter2++;
 
@@ -714,27 +722,8 @@ int main(int argc, const char* argv[], const char* envp[])
     sysModuleLoad(SYSMODULE_PNGDEC);
 	sysModuleLoad(SYSMODULE_JPGDEC);
 
-    if(argc>0 && argv) {
-    
-        if(!strncmp(argv[0], "/dev_hdd0/game/", 15)) {
-            int n;
-
-            strcpy(ps3load_path, argv[0]);
-
-            n= 15; while(ps3load_path[n] != '/' && ps3load_path[n] != 0) n++;
-
-            if(ps3load_path[n] == '/') {
-                sprintf(&ps3load_path[n], "%s", "/RELOAD.SELF");
-                sysLv2FsChmod(ps3load_path, 0170777ULL);
-
-                sprintf(&ps3load_path[n], "%s", "/TOOLS");
-                v_release = 1;
-            }
-        }
-    }
 
 	msg_error[0] = 0; // clear msg_error
-    //msg_one  [0] = 0;
     msg_two  [0] = 0;
 
     tiny3d_Init(1024*1024);
@@ -751,27 +740,18 @@ int main(int argc, const char* argv[], const char* envp[])
 	// register exit callback
 	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, sys_callback, NULL);
 
+    if ((inited = read_config(PS3TOOLS_PATH "/USRDIR/config.bin")) == 0xFFFFFFFF)
+    	inited = 0;
+
     PlayModTrack();
 
-#define continueloop() { goto reloop; }
-
-reloop:
-
-    msg_two[0]   = 0;
+    sprintf(msg_two, MSG_USAGE);
 
 	while (1) {
 		
         usleep(20000);
 		
         if(flag_exit) break;
-
-        color_two = 0xffffffff;
-
-		sprintf(msg_two, "Waiting for connection...");
-
-		if(flag_exit) break;
-        
-		continueloop();
 
 	}
 
