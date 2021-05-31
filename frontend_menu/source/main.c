@@ -27,6 +27,9 @@
 #include "pad.h"
 #include "spu_soundmodule_bin.h"
 #include "space_debris_mod_bin.h"
+#include "music1_mod_bin.h"
+#include "music2_mod_bin.h"
+#include "music3_mod_bin.h"
 
 char msg_error[128];
 char msg_two  [128];
@@ -44,6 +47,8 @@ void release_all();
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
+const u8* mod_files[4] = { space_debris_mod_bin, music1_mod_bin, music2_mod_bin, music3_mod_bin };
+u8 current_track = 0;
 
 MODPlay mod_track;   // struct for the MOD Player
 
@@ -93,7 +98,7 @@ void PlayModTrack()
 
 	MODPlay_Init(&mod_track);  // Initialize the MOD Library
 
-	if (MODPlay_SetMOD (&mod_track, space_debris_mod_bin ) < 0) // set the MOD song
+	if (MODPlay_SetMOD (&mod_track, mod_files[current_track] ) < 0) // set the MOD song
     {
         MODPlay_Unload (&mod_track);
         return;
@@ -105,6 +110,22 @@ void PlayModTrack()
     SND_Pause(inited & INITED_SNDPAUSED); // the sound loop is running now
 
 	inited |= INITED_MODPLAYER;
+}
+
+void ChangeModTrack()
+{
+	if (!(inited & INITED_MODPLAYER))
+		return;
+
+    SND_Pause(1); // pause the sound loop
+
+	MODPlay_Stop(&mod_track);
+	MODPlay_Unload (&mod_track);
+	MODPlay_Init(&mod_track);  // Initialize the MOD Library
+	MODPlay_SetMOD (&mod_track, mod_files[current_track] );
+	MODPlay_Start (&mod_track); // Play the MOD
+
+    SND_Pause(inited & INITED_SNDPAUSED); // the sound loop is running now
 }
 
 int read_config(const char *file_path) {
@@ -175,6 +196,24 @@ static void control_thread(void* arg)
 	while(running ){
        
         ps3pad_read();
+
+        if(new_pad & BUTTON_L1)
+        {
+			if (!current_track)
+				current_track = 4;
+			current_track--;
+
+            ChangeModTrack();
+		}
+
+        if(new_pad & BUTTON_R1)
+        {
+			current_track++;
+			if (current_track == 4)
+				current_track = 0;
+
+            ChangeModTrack();
+		}
 
         if((new_pad & BUTTON_CIRCLE) && !menu_level){
 			
