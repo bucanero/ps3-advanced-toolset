@@ -21,8 +21,8 @@ SOURCES		:=	../common/source source
 DATA		:=	data
 INCLUDES	:=	../common/include include
 
-TITLE		:=	Dump SYSROM
-APPID		:=	DSRO00003
+TITLE		:=	Dump SYSCON Error Log
+APPID		:=	SLOG00003
 CONTENTID	:=      UP0001-$(APPID)_00-0000000000000000
 PKGFILES	:=	$(CURDIR)/release
 
