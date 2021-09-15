@@ -5,7 +5,7 @@ This launcher application is based on [PS3loadX](https://github.com/bucanero/PS3
 ## Features
 - You can load applications from USB/HDD devices
 
-![PS3AdvTool](./PS3 Advanced Tools.png)
+![PS3AdvTool](./PS3%20Advanced%20Tools.png)
 
 Select one Application
 ----------------------
