@@ -31,6 +31,7 @@ static const char *dump_path[] = {
 	"/dev_usb004/" DUMP_FILENAME,
 	"/dev_usb005/" DUMP_FILENAME,
 	"/dev_usb006/" DUMP_FILENAME,
+	"/app_home/" DUMP_FILENAME,
 };
 
 struct __attribute__((__packed__)) system_info {
@@ -73,6 +74,12 @@ static inline int sys_sm_request_scversion(uint64_t* unknown0, uint64_t* unknown
 	return_to_user_prog(int);	
 }
 
+static inline int sys_ss_appliance_info_manager_get_ps_code(uint8_t* unknown0)
+{
+	lv2syscall2(867, (uint64_t)0x19004, (uint64_t)unknown0);
+	return_to_user_prog(int);
+}
+
 /*
  * open_dump
  */
@@ -83,7 +90,7 @@ static FILE *open_dump(void)
 
 	fp = NULL;
 
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 8; i++) {
 		PRINTF("%s:%d: trying path '%s'\n", __func__, __LINE__, dump_path[i]);
 
 		fp = fopen(dump_path[i], "w");
@@ -119,10 +126,19 @@ int main(int argc, char **argv)
 	struct system_info hwinfo = {0, 0, 0, {0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, 0, {0, 0, 0, 0}};
 	ret = sys_sm_get_system_info(&hwinfo);
 	if(!ret) {
-		fprintf(fp, "Firmware Version: %01x.%02x (%d)\n", hwinfo.firmware_version_high, hwinfo.firmware_version_low >> 4, hwinfo.firmware_build);
+		fprintf(fp, "Firmware Version: %01x.%02x (build %d)\n", hwinfo.firmware_version_high, hwinfo.firmware_version_low >> 4, hwinfo.firmware_build);
 		fprintf(fp, "Platform ID: %s\n", hwinfo.platform_id);
 	} else {
 		PRINTF("%s:%d: sys_sm_get_system_info failed\n", __func__, __LINE__);
+	}
+	
+	uint8_t pscode[8];
+	ret = sys_ss_appliance_info_manager_get_ps_code(pscode);
+	if(!ret) {
+		fprintf(fp, "Product Code: %02X %02X\n", pscode[2], pscode[3]);
+		fprintf(fp, "Product Sub Code: %02X %02X\n", pscode[4], pscode[5]);
+	} else {
+		PRINTF("%s:%d: sys_ss_appliance_info_manager_get_ps_code failed\n", __func__, __LINE__);
 	}
 
 	uint8_t status;
@@ -139,7 +155,7 @@ int main(int argc, char **argv)
 	uint64_t patch_id_ram;
 	ret = sys_sm_request_scversion(&soft_id, &patch_id_rom, &patch_id_ram);
 	if(!ret){
-		fprintf(fp, "Syscon Fimware Version: %04lX.%016lX (%016lX)\n", soft_id, patch_id_rom, patch_id_ram);
+		fprintf(fp, "Syscon Fimware Version: %04lX.%016lX (EEPROM: %016lX)\n", soft_id, patch_id_ram, patch_id_rom);
 	} else {
 		PRINTF("%s:%d: sys_sm_request_scversion failed\n", __func__, __LINE__);
 	}
